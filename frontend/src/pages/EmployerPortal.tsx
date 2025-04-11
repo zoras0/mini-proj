@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -8,12 +8,21 @@ import { InternshipActions } from "../components/internship/InternshipActions";
 import axios from "axios";
 import EmployerSignUp from "../components/EmployerSignUp";
 
+// If you move login to another component, remove this schema
 const employerSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8, "Password must be at least 8 characters"),
 });
 
 type EmployerFormData = z.infer<typeof employerSchema>;
+
+interface Applicant {  // Define Applicant interface
+  id: string;
+  name: string;
+  email: string;
+  status: "pending" | "reviewed" | "shortlisted" | "rejected";
+  appliedDate: string;
+}
 
 interface Internship {
   id: string;
@@ -24,71 +33,25 @@ interface Internship {
   description: string;
   requirements: string;
   status: "active" | "closed";
-  applicants: Array<{
-    id: string;
-    name: string;
-    email: string;
-    status: "pending" | "reviewed" | "shortlisted" | "rejected";
-    appliedDate: string;
-  }>;
+  applicants?: Applicant[]; // Make applicants optional
 }
 
-// Mock internships data
-const mockInternships: Internship[] = [
-  {
-    id: "1",
-    title: "Software Engineering Intern",
-    company: "TechCorp Inc.",
-    duration: "3 months",
-    location: "Mumbai",
-    description: "Looking for a passionate software engineering intern...",
-    requirements:
-      "Strong programming fundamentals, knowledge of web technologies",
-    status: "active" as const,
-    applicants: [
-      {
-        id: "a1",
-        name: "John Doe",
-        email: "john@example.com",
-        status: "pending" as const,
-        appliedDate: "2024-03-01",
-      },
-      {
-        id: "a2",
-        name: "Jane Smith",
-        email: "jane@example.com",
-        status: "reviewed" as const,
-        appliedDate: "2024-03-02",
-      },
-    ],
-  },
-  {
-    id: "2",
-    title: "Data Science Intern",
-    company: "TechCorp Inc.",
-    duration: "6 months",
-    location: "Mumbai",
-    description: "Join our data science team...",
-    requirements: "Statistics, Python, Machine Learning",
-    status: "active",
-    applicants: [
-      {
-        id: "a3",
-        name: "Alice Johnson",
-        email: "alice@example.com",
-        status: "shortlisted" as const,
-        appliedDate: "2024-03-03",
-      },
-    ],
-  },
-];
 
 const EmployerPortal: React.FC = () => {
-  const [internships, setInternships] = useState<Internship[]>(mockInternships);
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [internships, setInternships] = useState<Internship[]>([]);
+  const [applications, setApplications] = useState<any[]>([]); // Replace 'any' with a more specific type if you have one
+  const [newInternship, setNewInternship] = useState({
+    title: "",
+    description: "",
+    duration: "",
+    location: "",
+    requirements: "",
+  });
+  const [isLoggedIn, setIsLoggedIn] = useState(false); // Remove if login moved
   const [isEditProfileModalOpen, setIsEditProfileModalOpen] = useState(false);
-  const [showSignUp, setShowSignUp] = useState(false);
-  const [serverError, setServerError] = useState<string | null>(null);
+  const [showSignUp, setShowSignUp] = useState(false); // Remove if login moved
+  const [serverError, setServerError] = useState<string | null>(null); // Remove if login moved
+  const [employerId, setEmployerId] = useState<string | null>(null);
   const {
     register,
     handleSubmit,
@@ -96,6 +59,88 @@ const EmployerPortal: React.FC = () => {
   } = useForm<EmployerFormData>({
     resolver: zodResolver(employerSchema),
   });
+
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      try {
+        const decodedToken = JSON.parse(atob(token.split('.')[1]));
+        setEmployerId(decodedToken.id);
+        setIsLoggedIn(true); // Set isLoggedIn to true if token exists
+        fetchEmployerData();
+      } catch (error) {
+        console.error('Error decoding token:', error);
+      }
+    }
+  }, []);
+
+  const fetchEmployerData = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token || !employerId) {
+        // Handle case where token or employerId is not available (e.g., redirect to login)
+        return;
+      }
+
+      // Assuming you have an endpoint to get employer-specific data
+      const [internshipsResponse, applicationsResponse] = await Promise.all([
+        axios.get(`${import.meta.env.VITE_API_URL}/internships?employerId=${employerId}`, {  // Adjust URL
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+        axios.get(`${import.meta.env.VITE_API_URL}/applications?employerId=${employerId}`, { // Adjust URL
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+      ]);
+      console.log(internshipsResponse.data)
+      setInternships(internshipsResponse.data);
+      setApplications(applicationsResponse.data);
+    } catch (error) {
+      console.error('Error fetching employer data:', error);
+      // Handle errors (e.g., display an error message)
+    }
+  };
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target;
+    setNewInternship((prevState) => ({
+      ...prevState,
+      [name]: value,
+    }));
+  };
+
+  const handlePostInternship = async () => {
+    try {
+      const token = localStorage.getItem("token");
+      if (!token || !employerId) {
+        console.error("No token found");
+        // Handle the error appropriately, e.g., redirect to login
+        return;
+      }
+      const response = await axios.post(
+        `${import.meta.env.VITE_API_URL}/internships`,
+        { ...newInternship, employerId },
+        {
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+      console.log("Internship posted:", response.data);
+      // Clear the form after successful submission:
+      setNewInternship({
+        title: "",
+        description: "",
+        duration: "",
+        location: "",
+        requirements: "",
+      });
+      // The real-time update from Socket.IO should automatically refresh the list
+      fetchEmployerData(); // Re-fetch data to include the new internship
+    } catch (error) {
+      console.error("Error posting internship:", error);
+      // Handle errors (e.g., display an error message)
+    }
+  };
 
   const handleInternshipStatusChange = (
     internshipId: string,
@@ -109,7 +154,8 @@ const EmployerPortal: React.FC = () => {
       )
     );
   };
-  const onSubmit = async (data: EmployerFormData) => {
+
+  const onSubmit = async (data: EmployerFormData) => { // Remove if login moved
     try {
       setServerError(null);
       const response = await axios.post(
@@ -117,20 +163,23 @@ const EmployerPortal: React.FC = () => {
         data
       );
       console.log(response.data);
+      localStorage.setItem("token", response.data.token); // Store the token
       setIsLoggedIn(true);
     } catch (error) {
       console.error("Error logging in:", error);
       if (axios.isAxiosError(error)) {
-        const errorMessage = error.response?.data?.error || 
-                           error.response?.data?.message ||
-                           "An error occurred during login. Please try again.";
+        const errorMessage =
+          error.response?.data?.error ||
+          error.response?.data?.message ||
+          "An error occurred during login. Please try again.";
         setServerError(errorMessage);
       } else {
         setServerError("An unexpected error occurred. Please try again.");
       }
     }
   };
-  if (!isLoggedIn) {
+
+  if (!isLoggedIn) { // Remove if login moved
     return (
       <div className="container mx-auto px-4 py-8">
         <h1 className="text-3xl font-bold mb-8">Employer Portal</h1>
@@ -210,7 +259,7 @@ const EmployerPortal: React.FC = () => {
             <h2 className="text-2xl font-semibold mb-4">
               Post a New Internship
             </h2>
-            <form>
+            <form onSubmit={(e) => { e.preventDefault(); handlePostInternship(); }}>
               <div className="mb-4">
                 <label htmlFor="title" className="block mb-2">
                   Internship Title
@@ -218,6 +267,9 @@ const EmployerPortal: React.FC = () => {
                 <input
                   type="text"
                   id="title"
+                  name="title"
+                  value={newInternship.title}
+                  onChange={handleInputChange}
                   className="w-full px-3 py-2 border rounded-md"
                 />
               </div>
@@ -227,6 +279,9 @@ const EmployerPortal: React.FC = () => {
                 </label>
                 <textarea
                   id="description"
+                  name="description"
+                  value={newInternship.description}
+                  onChange={handleInputChange}
                   rows={4}
                   className="w-full px-3 py-2 border rounded-md"
                 ></textarea>
@@ -238,6 +293,9 @@ const EmployerPortal: React.FC = () => {
                 <input
                   type="text"
                   id="duration"
+                  name="duration"
+                  value={newInternship.duration}
+                  onChange={handleInputChange}
                   className="w-full px-3 py-2 border rounded-md"
                   placeholder="e.g., 3 months"
                 />
@@ -249,6 +307,9 @@ const EmployerPortal: React.FC = () => {
                 <input
                   type="text"
                   id="location"
+                  name="location"
+                  value={newInternship.location}
+                  onChange={handleInputChange}
                   className="w-full px-3 py-2 border rounded-md"
                 />
               </div>
@@ -258,6 +319,9 @@ const EmployerPortal: React.FC = () => {
                 </label>
                 <textarea
                   id="requirements"
+                  name="requirements"
+                  value={newInternship.requirements}
+                  onChange={handleInputChange}
                   rows={3}
                   className="w-full px-3 py-2 border rounded-md"
                 ></textarea>
@@ -277,6 +341,7 @@ const EmployerPortal: React.FC = () => {
           <div className="bg-white p-6 rounded-lg shadow-md mb-8">
             <h2 className="text-2xl font-semibold mb-4">Company Profile</h2>
             <div className="space-y-2">
+              {/* Replace mock data with actual company info if available */}
               <p>
                 <strong>Company:</strong> TechCorp Inc.
               </p>
@@ -304,7 +369,7 @@ const EmployerPortal: React.FC = () => {
                 <Briefcase size={24} className="mr-2 text-green-600" />
                 <div>
                   <p className="font-semibold">Active Internships</p>
-                  <p className="text-2xl font-bold">{mockInternships.length}</p>
+                  <p className="text-2xl font-bold">{internships.length}</p>
                 </div>
               </div>
               <div className="flex items-center">
@@ -312,9 +377,8 @@ const EmployerPortal: React.FC = () => {
                 <div>
                   <p className="font-semibold">Total Applicants</p>
                   <p className="text-2xl font-bold">
-                    {mockInternships.reduce(
-                      (sum, internship) => sum + internship.applicants.length,
-                      0
+                    {internships.reduce((sum, internship) => 
+                      sum + (internship.applicants ? internship.applicants.length : 0), 0
                     )}
                   </p>
                 </div>
@@ -324,13 +388,10 @@ const EmployerPortal: React.FC = () => {
                 <div>
                   <p className="font-semibold">Pending Reviews</p>
                   <p className="text-2xl font-bold">
-                    {mockInternships.reduce(
+                    {internships.reduce(
                       (sum, internship) =>
                         sum +
-                        internship.applicants.filter(
-                          (a) => a.status === "pending"
-                        ).length,
-                      0
+                        (internship.applicants ? internship.applicants.filter((a) => a.status === "pending").length : 0), 0
                     )}
                   </p>
                 </div>
@@ -359,7 +420,7 @@ const EmployerPortal: React.FC = () => {
                 <tr key={internship.id} className="border-b">
                   <td className="py-2">{internship.title}</td>
                   <td className="py-2">{internship.duration}</td>
-                  <td className="py-2">{internship.applicants.length}</td>
+                  <td className="py-2">{internship.applicants ? internship.applicants.length : 0}</td>
                   <td className="py-2">
                     <span
                       className={`px-2 py-1 rounded-full text-sm ${

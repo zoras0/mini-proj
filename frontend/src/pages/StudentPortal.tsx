@@ -7,7 +7,33 @@ import ApplyModal from "../components/ApplyModal";
 import EditProfileModal from "../components/EditProfileModal";
 import axios from "axios";
 import SignUp from "../components/SignUp";
-import { useChatbot } from '../context/ChatbotContext';
+import { useChatbot } from "../context/ChatbotContext";
+
+// Define interfaces for better type safety
+interface Internship {
+  id: string;
+  title: string;
+  company: string;
+  description: string;
+  // Add other internship properties as needed
+}
+
+interface Application {
+  id: string;
+  internshipId: string;
+  studentId: string;
+  status: string;
+  // Add other application properties as needed
+}
+
+interface Student {
+  id: string;
+  name: string;
+  email: string;
+  department: string;
+  year: string;
+  // Add other student profile properties
+}
 
 const studentSchema = z.object({
   email: z.string().email(),
@@ -26,6 +52,11 @@ const StudentPortal: React.FC = () => {
     company: string;
   } | null>(null);
   const [loginError, setLoginError] = useState<string | null>(null);
+  const [internships, setInternships] = useState<Internship[]>([]);
+  const [student, setStudent] = useState<Student | null>(null);
+  const [applications, setApplications] = useState<Application[]>([]);
+  const [studentId, setStudentId] = useState<string | null>(null);
+
 
   const {
     register,
@@ -38,6 +69,21 @@ const StudentPortal: React.FC = () => {
   const { setUserRole } = useChatbot();
 
   useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      try {
+        const decodedToken = JSON.parse(atob(token.split('.')[1]));
+        setStudentId(decodedToken.id);
+        setIsLoggedIn(true); // Set isLoggedIn to true if token exists
+        fetchStudentData();
+      } catch (error) {
+        console.error('Error decoding token:', error);
+      }
+    }
+  }, []);
+
+
+  useEffect(() => {
     if (isLoggedIn) {
       setUserRole('student');
     } else {
@@ -45,21 +91,44 @@ const StudentPortal: React.FC = () => {
     }
   }, [isLoggedIn, setUserRole]);
 
+  const fetchStudentData = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token || !studentId) {
+        console.error('No token or student ID found');
+        return;
+      }
+
+      const [studentResponse, internshipsResponse, applicationsResponse] = await Promise.all([
+        axios.get(`${import.meta.env.VITE_API_URL}/students/${studentId}`, {  // Adjust URL
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+        axios.get(`${import.meta.env.VITE_API_URL}/internships`, {  // Adjust URL
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+        axios.get(`${import.meta.env.VITE_API_URL}/applications?studentId=${studentId}`, { // Adjust URL
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+      ]);
+
+      setStudent(studentResponse.data);
+      setInternships(internshipsResponse.data);
+      setApplications(applicationsResponse.data);
+
+    } catch (error) {
+      console.error('Error fetching student data:', error);
+      // Handle errors (e.g., display an error message)
+    }
+  };
   const onSubmit = async (data: StudentFormData) => {
     try {
       setLoginError(null);
       const response = await axios.post(
-        "http://localhost:3000/students/login",
+        `${import.meta.env.VITE_API_URL}/students/login`,  //Updated this line
         data,
-        {
-          withCredentials: true,
-          headers: {
-            "Content-Type": "application/json",
-            Accept: "application/json",
-          },
-        }
       );
       console.log("Login successful:", response.data);
+      localStorage.setItem("token", response.data.token); // Store the token
       setIsLoggedIn(true);
     } catch (error) {
       console.error("Error logging in:", error);
@@ -78,6 +147,33 @@ const StudentPortal: React.FC = () => {
     setSelectedInternship({ title, company });
     setIsApplyModalOpen(true);
   };
+
+  const handleApply = async (internshipId: string) => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token || !studentId) {
+        console.error('No token or student ID found');
+        return;
+      }
+      const response = await axios.post(
+        `${import.meta.env.VITE_API_URL}/applications`, // Updated this line
+        { internshipId, studentId },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+      console.log('Application submitted:', response.data);
+      // Optionally, update the UI to reflect the application (e.g., disable the apply button)
+      fetchStudentData(); // Re-fetch data to include the new application
+    } catch (error) {
+      console.error('Error submitting application:', error);
+      // Handle errors
+    }
+  };
+
 
   if (!isLoggedIn) {
     return (
@@ -183,41 +279,24 @@ const StudentPortal: React.FC = () => {
           <div className="bg-white p-6 rounded-lg shadow-md">
             <h2 className="text-2xl font-semibold mb-4">Internship Listings</h2>
             <div className="space-y-4">
-              <div className="border-b pb-4">
-                <h3 className="text-xl font-semibold">
-                  Software Engineering Intern
-                </h3>
-                <p className="text-gray-600">TechCorp Inc.</p>
-                <p className="text-sm text-gray-500">
-                  Mumbai, Maharashtra • 3 months
-                </p>
-                <button
-                  onClick={() =>
-                    handleApplyClick(
-                      "Software Engineering Intern",
-                      "TechCorp Inc."
-                    )
-                  }
-                  className="mt-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition duration-300"
-                >
-                  Apply Now
-                </button>
-              </div>
-              <div className="border-b pb-4">
-                <h3 className="text-xl font-semibold">Data Science Intern</h3>
-                <p className="text-gray-600">Analytics Pro</p>
-                <p className="text-sm text-gray-500">
-                  Pune, Maharashtra • 6 months
-                </p>
-                <button
-                  onClick={() =>
-                    handleApplyClick("Data Science Intern", "Analytics Pro")
-                  }
-                  className="mt-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition duration-300"
-                >
-                  Apply Now
-                </button>
-              </div>
+              {internships.map(internship => (
+                <div key={internship.id} className="border-b pb-4">
+                  <h3 className="text-xl font-semibold">
+                    {internship.title}
+                  </h3>
+                  <p className="text-gray-600">{internship.company}</p>
+                  <p className="text-sm text-gray-500">
+                    {/* Add location and duration if available in your data */}
+                  </p>
+                  <button
+                    onClick={() => handleApply(internship.id)} // Use handleApply directly
+                    className="mt-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition duration-300"
+                    disabled={applications.some(app => app.internshipId === internship.id)}
+                  >
+                    {applications.some(app => app.internshipId === internship.id) ? "Applied" : "Apply Now"}
+                  </button>
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -225,18 +304,22 @@ const StudentPortal: React.FC = () => {
           <div className="bg-white p-6 rounded-lg shadow-md mb-8">
             <h2 className="text-2xl font-semibold mb-4">Your Profile</h2>
             <div className="space-y-2">
-              <p>
-                <strong>Name:</strong> John Doe
-              </p>
-              <p>
-                <strong>Email:</strong> john.doe@fcrit.ac.in
-              </p>
-              <p>
-                <strong>Department:</strong> Computer Engineering
-              </p>
-              <p>
-                <strong>Year:</strong> 3rd Year
-              </p>
+              {student && (
+                <>
+                  <p>
+                    <strong>Name:</strong> {student.name}
+                  </p>
+                  <p>
+                    <strong>Email:</strong> {student.email}
+                  </p>
+                  <p>
+                    <strong>Department:</strong> {student.department}
+                  </p>
+                  <p>
+                    <strong>Year:</strong> {student.year}
+                  </p>
+                </>
+              )}
             </div>
             <button
               onClick={() => setIsEditProfileModalOpen(true)}
@@ -248,18 +331,19 @@ const StudentPortal: React.FC = () => {
           <div className="bg-white p-6 rounded-lg shadow-md">
             <h2 className="text-2xl font-semibold mb-4">Application Status</h2>
             <div className="space-y-4">
-              <div>
-                <h3 className="font-semibold">
-                  Software Engineering Intern - TechCorp Inc.
-                </h3>
-                <p className="text-sm text-green-600">Application Submitted</p>
-              </div>
-              <div>
-                <h3 className="font-semibold">
-                  Web Development Intern - WebSolutions Ltd.
-                </h3>
-                <p className="text-sm text-yellow-600">Under Review</p>
-              </div>
+              {applications.map(application => {
+                const internship = internships.find(i => i.id === application.internshipId);
+                return internship ? (
+                  <div key={application.id}>
+                    <h3 className="font-semibold">
+                      {internship.title} - {internship.company}
+                    </h3>
+                    <p className="text-sm text-green-600">
+                      {application.status}
+                    </p>
+                  </div>
+                ) : null;
+              })}
             </div>
           </div>
         </div>
