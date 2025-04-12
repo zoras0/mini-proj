@@ -9,6 +9,192 @@ import axios from "axios";
 import SignUp from "../components/SignUp";
 import { useChatbot } from "../context/ChatbotContext";
 
+// ... interfaces (Internship, Application, Student) ...
+
+const studentSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(8, "Password must be at least 8 characters"),
+});
+
+type StudentFormData = z.infer<typeof studentSchema>;
+
+const StudentPortal: React.FC = () => {
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [showSignUp, setShowSignUp] = useState(false);
+  const [isApplyModalOpen, setIsApplyModalOpen] = useState(false);
+  const [isEditProfileModalOpen, setIsEditProfileModalOpen] = useState(false);
+  const [selectedInternship, setSelectedInternship] = useState<
+    { title: string; company: string } | null
+  >(null);
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [internships, setInternships] = useState<Internship[]>([]);
+  const [student, setStudent] = useState<Student | null>(null);
+  const [applications, setApplications] = useState<Application[]>([]);
+  const [studentId, setStudentId] = useState<string | null>(null);
+
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+  } = useForm<StudentFormData>({
+    resolver: zodResolver(studentSchema),
+  });
+
+  const { setUserRole } = useChatbot();
+
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      try {
+        const decodedToken = JSON.parse(atob(token.split('.')[1]));
+        setStudentId(decodedToken.id);
+        setIsLoggedIn(true); // Set isLoggedIn to true if token exists
+        fetchStudentData();
+      } catch (error) {
+        console.error('Error decoding token:', error);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isLoggedIn) {
+      setUserRole('student');
+    } else {
+      setUserRole('guest');
+    }
+  }, [isLoggedIn, setUserRole]);
+
+  const fetchStudentData = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token || !studentId) {
+        console.error('No token or student ID found');
+        return;
+      }
+
+      const [studentResponse, internshipsResponse, applicationsResponse] = await Promise.all([
+        axios.get(`${import.meta.env.VITE_API_URL}/students/${studentId}`, {  // Adjust URL
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+        axios.get(`${import.meta.env.VITE_API_URL}/internships`, {  // Adjust URL
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+        axios.get(`${import.meta.env.VITE_API_URL}/applications?studentId=${studentId}`, { // Adjust URL
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+      ]);
+
+      setStudent(studentResponse.data);
+      setInternships(internshipsResponse.data);
+      setApplications(applicationsResponse.data);
+
+    } catch (error) {
+      console.error('Error fetching student data:', error);
+      // Handle errors (e.g., display an error message)
+    }
+  };
+  const onSubmit = async (data: StudentFormData) => {
+    try {
+      setLoginError(null);
+      const response = await axios.post(
+        `${import.meta.env.VITE_API_URL}/students/login`,  //Updated this line
+        data,
+      );
+      console.log("Login successful:", response.data);
+      localStorage.setItem("token", response.data.token); // Store the token
+      setIsLoggedIn(true);
+    } catch (error) {
+      console.error("Error logging in:", error);
+      if (axios.isAxiosError(error)) {
+        const errorMessage =
+          error.response?.data?.error ||
+          "An error occurred during login. Please try again.";
+        setLoginError(errorMessage);
+      } else {
+        setLoginError("An unexpected error occurred. Please try again.");
+      }
+    }
+  };
+
+  const handleApplyClick = (title: string, company: string) => {
+    setSelectedInternship({ title, company });
+    setIsApplyModalOpen(true);
+  };
+
+  const handleApply = async (internshipId: string) => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token || !studentId) {
+        console.error('No token or student ID found');
+        return;
+      }
+      const response = await axios.post(
+        `${import.meta.env.VITE_API_URL}/applications`, // Updated this line
+        { internshipId, studentId },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+      console.log('Application submitted:', response.data);
+      // Optionally, update the UI to reflect the application (e.g., disable the apply button)
+      fetchStudentData(); // Re-fetch data to include the new application
+    } catch (error) {
+      console.error('Error submitting application:', error);
+      // Handle errors
+    }
+  };
+
+  if (!isLoggedIn) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <h1 className="text-3xl font-bold mb-8">Student Portal</h1>
+        {showSignUp ? (
+          <SignUp onSignUpSuccess={() => setShowSignUp(false)} />
+        ) : (
+          // ... login form ...
+          <p className="text-center text-gray-600 mt-4">
+            Don't have an account?{" "}
+            <button
+              type="button"
+              onClick={() => setShowSignUp(true)}
+              className="text-blue-600 hover:underline"
+            >
+              Sign up
+            </button>
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="container mx-auto px-4 py-8">
+      {/* ... student dashboard UI ... */}
+      <EditProfileModal
+        isOpen={isEditProfileModalOpen}
+        onClose={() => setIsEditProfileModalOpen(false)}
+        studentId={studentId || ''} // Pass studentId as a prop
+        defaultValues={student} // Pass existing student data as defaultValues
+      />
+    </div>
+  );
+};
+
+export default StudentPortal;
+import React, { useState, useEffect } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import { Search, Filter } from "lucide-react";
+import ApplyModal from "../components/ApplyModal";
+import EditProfileModal from "../components/EditProfileModal";
+import axios from "axios";
+import SignUp from "../components/SignUp";
+import { useChatbot } from "../context/ChatbotContext";
+
 // Define interfaces for better type safety
 interface Internship {
   id: string;
@@ -361,6 +547,8 @@ const StudentPortal: React.FC = () => {
       <EditProfileModal
         isOpen={isEditProfileModalOpen}
         onClose={() => setIsEditProfileModalOpen(false)}
+        studentId={studentId || ''} // Pass studentId as a prop
+        defaultValues={student} // Pass existing student data as defaultValues
       />
     </div>
   );

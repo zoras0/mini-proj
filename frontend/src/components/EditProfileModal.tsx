@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
+import axios from 'axios';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { X } from 'lucide-react';
@@ -28,24 +29,65 @@ type ProfileFormData = z.infer<typeof profileSchema>;
 interface EditProfileModalProps {
   isOpen: boolean;
   onClose: () => void;
+  studentId: string; // Add studentId prop
 }
 
-const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onClose }) => {
-  const { register, handleSubmit, formState: { errors } } = useForm<ProfileFormData>({
+const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onClose, studentId }) => {
+  const { register, handleSubmit, formState: { errors }, reset } = useForm<ProfileFormData>({
     resolver: zodResolver(profileSchema),
-    defaultValues: {
-      fullName: "John Doe",
-      email: "john.doe@fcrit.ac.in",
-      department: "Computer Engineering",
-      year: "3rd Year",
-    }
+    defaultValues: {}
   });
 
-  const onSubmit = (data: ProfileFormData) => {
-    console.log(data);
-    // Handle profile update
-    onClose();
-  };
+  useEffect(() => {
+    if (isOpen && studentId) {
+        const fetchStudentData = async () => {
+            try {
+                const token = localStorage.getItem('token');
+                if (!token) return;
+                const response = await axios.get(`${import.meta.env.VITE_API_URL}/students/${studentId}`,{
+                  headers: { Authorization: `Bearer ${token}` },
+                })
+                reset(response.data)
+            } catch (error) {
+              console.error(error)
+            }
+        }
+        fetchStudentData()
+    }
+  },[isOpen,studentId])
+
+  const onSubmit = async (data: ProfileFormData) => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token || !studentId) return console.error('No token or student ID found');
+      const response = await axios.put(`${import.meta.env.VITE_API_URL}/students/${studentId}`, data, { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, },});
+      console.log('Profile updated successfully:', response.data);
+    } catch (error) {
+      console.error('Error updating profile:', error);
+    } finally {
+      onClose(); // Close the modal regardless of success or failure
+    }
+const onSubmit = async (data: ProfileFormData) => {
+  try {
+    const token = localStorage.getItem('token');
+    if (!token || !studentId) {
+      console.error('No token or student ID found');
+      // Handle error appropriately, e.g., show an error message to the user
+      return;
+    }
+
+    const response = await axios.put(
+      `${import.meta.env.VITE_API_URL}/students/${studentId}`,  // This is also an API call
+      data,
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+      }
+    );
+
+    // ... rest of the code ...
 
   if (!isOpen) return null;
 
